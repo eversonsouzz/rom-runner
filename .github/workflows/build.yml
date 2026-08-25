@@ -6,7 +6,7 @@ on:
       DEVICE_CODENAME:
         description: 'Codinome do modelo (ex: sofia, rav, ocean, fiji)'
         required: true
-        default: 'sofia'
+        default: 'rav'
 
 jobs:
   build:
@@ -15,24 +15,29 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Limpa o disco do runner para caber os arquivos da ROM (~40GB)
-      - name: Free Disk Space
+      # 1. Limpeza pesada de espaço em disco no Runner
+      - name: Maximize Build Space
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/doc
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo docker image prune -a -f
           sudo apt-get clean
+          sudo apt-get autoremove -y
           df -h /
 
-      # 2. Ativa 12GB de SWAP de forma segura
+      # 2. Ativa 8GB de SWAP (suficiente para evitar OOM sem estourar o SSD)
       - name: Setup Swap Space
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=12288 status=progress
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
@@ -80,8 +85,9 @@ jobs:
           </manifest>
           EOF
 
-          # Baixa o codigo em modo leve (depth 1)
+          # Baixa o codigo em modo leve (depth 1) e apaga rastros inutilizaveis do git para poupar disco
           repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune -j$(nproc --all)
+          rm -rf .repo/project-objects .repo/projects
 
       # 5. GERADOR DE CHAVES OFICIAIS (Substitui as testkeys públicas)
       - name: Generate Release Keys
