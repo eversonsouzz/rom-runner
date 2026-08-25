@@ -27,10 +27,12 @@ jobs:
           sudo apt-get clean
           df -h /
 
-      # 2. Ativa 12GB de SWAP para nao faltar RAM durante a compilacao
+      # 2. Ativa 12GB de SWAP de forma segura (Corrigido para evitar 'Text file busy')
       - name: Setup Swap Space
         run: |
-          sudo fallocate -l 12G /swapfile
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=12288 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
