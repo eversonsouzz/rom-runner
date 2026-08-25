@@ -1,12 +1,7 @@
-name: Build ROM Release Keys (Strong Integrity)
+name: Build ROM Android 11 (rav)
 
 on:
   workflow_dispatch:
-    inputs:
-      DEVICE_CODENAME:
-        description: 'Codinome do modelo (ex: sofia, rav, ocean, fiji)'
-        required: true
-        default: 'rav'
 
 jobs:
   build:
@@ -15,7 +10,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Limpeza pesada de espaço em disco no Runner
+      # 1. Limpeza pesada de disco
       - name: Maximize Build Space
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -24,26 +19,24 @@ jobs:
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf /usr/share/swift
           sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/local/doc
-          sudo rm -rf /usr/local/share/chromium
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo docker image prune -a -f
           sudo apt-get clean
           sudo apt-get autoremove -y
           df -h /
 
-      # 2. Ativa 8GB de SWAP (suficiente para evitar OOM sem estourar o SSD)
+      # 2. SWAP leve de 6GB (suficiente para Android 11)
       - name: Setup Swap Space
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=6144 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
           free -h
 
-      # 3. Instala as ferramentas de build no sistema Linux (Corrigido ccache e repositórios)
+      # 3. Dependências de build
       - name: Install Build Dependencies
         run: |
           sudo add-apt-repository universe -y
@@ -53,43 +46,38 @@ jobs:
             flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev \
             lib32z1-dev libc6-dev-i386 libgl1-mesa-dev libxml2-utils \
             xsltproc unzip zip curl lzop pngcrush schedtool squashfs-tools \
-            zlib1g-dev libssl-dev libelf-dev openjdk-17-jdk
+            zlib1g-dev libssl-dev libelf-dev openjdk-8-jdk
           
-          # Aponta 'python' para 'python3' manualmente para nao falhar no apt
           sudo ln -sf /usr/bin/python3 /usr/bin/python
           
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
 
-      # 4. Baixa a fonte da ROM e associa com o SEU FORK
+      # 4. Sync da fonte LineageOS 18.1 (Android 11) + Device Tree sjllls
       - name: Sync Source Code & Local Manifests
         run: |
           export PATH="$HOME/bin:$PATH"
           mkdir -p work
           cd work
           
-          # Inicia a sincronizacao com a ROM base
-          repo init -u https://github.com/LineageOS/android.git -b lineage-21.0 --git-lfs --depth=1
+          repo init -u https://github.com/LineageOS/android.git -b lineage-18.1 --git-lfs --depth=1
           
           mkdir -p .repo/local_manifests
           
-          # AQUI JA ESTA O SEU FORK CONFIGURADO!
-          cat <<EOF > .repo/local_manifests/trinket.xml
+          cat <<EOF > .repo/local_manifests/rav.xml
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
-            <project path="device/motorola/trinket-common" name="eversonsouzz/android_device_motorola_amogus" remote="github" revision="lineage-21" />
-            <project path="device/motorola/${{ github.event.inputs.DEVICE_CODENAME }}" name="electimon/android_device_motorola_${{ github.event.inputs.DEVICE_CODENAME }}" remote="github" revision="lineage-21" />
-            <project path="kernel/motorola/trinket" name="electimon/android_kernel_motorola_trinket" remote="github" revision="lineage-21" />
-            <project path="vendor/motorola" name="TheMuppets/proprietary_vendor_motorola" remote="github" revision="lineage-21" />
+            <project path="device/motorola/rav" name="sjllls/android_device_motorola_rav" remote="github" revision="lineage-18.1" />
+            <project path="kernel/motorola/msm8998" name="LineageOS/android_kernel_motorola_msm8998" remote="github" revision="lineage-18.1" />
+            <project path="vendor/motorola" name="TheMuppets/proprietary_vendor_motorola" remote="github" revision="lineage-18.1" />
           </manifest>
           EOF
 
-          # Baixa o codigo em modo leve (depth 1) e apaga rastros inutilizaveis do git para poupar disco
           repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune -j$(nproc --all)
           rm -rf .repo/project-objects .repo/projects
 
-      # 5. GERADOR DE CHAVES OFICIAIS (Substitui as testkeys públicas)
+      # 5. Gerador de Release Keys
       - name: Generate Release Keys
         run: |
           cd work
@@ -97,39 +85,39 @@ jobs:
           
           AUTH='/C=US/ST=California/L=MountainView/O=Android/OU=Android/CN=Android/emailAddress=android@android.com'
           
-          # Gera os certificados privados PKCS#8 para assinar a ROM
           for key in releasekey platform shared media testkey bluetooth sdk_addon; do
             ./development/tools/make_key certs/$key "$AUTH" <<EOF
 
           EOF
           done
 
-      # 6. Compila a ROM forcando assinatura com RELEASE-KEYS
+      # 6. Build Android 11 (Otimizado com -j2 para não congelar)
       - name: Build ROM
         run: |
           export PATH="$HOME/bin:$PATH"
           cd work
           source build/envsetup.sh
           
-          lunch lineage_${{ github.event.inputs.DEVICE_CODENAME }}-userdebug
+          lunch lineage_rav-userdebug
           
           export USE_CCACHE=1
           export CCACHE_EXEC=/usr/bin/ccache
           ccache -M 10G
           
-          # Forca o sistema a usar as suas chaves recem-criadas
+          export _JAVA_OPTIONS="-Xmx4g"
+          export NINJA_ARGS="-j2"
+          
           export PRODUCT_DEFAULT_DEV_CERTIFICATE=certs/releasekey
           export BUILD_KEYS=release-keys
           
-          # Compila o arquivo instalavel (.zip)
-          m bacon -j$(nproc --all)
+          m bacon -j2
 
-      # 7. Salva a ROM e a chave gerada nos artefatos do GitHub
+      # 7. Upload do ZIP da ROM
       - name: Upload ROM Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-ReleaseKeys-${{ github.event.inputs.DEVICE_CODENAME }}
+          name: ROM-Lineage18.1-rav
           path: |
-            work/out/target/product/${{ github.event.inputs.DEVICE_CODENAME }}/*.zip
+            work/out/target/product/rav/*.zip
             work/certs/
           if-no-files-found: warn
