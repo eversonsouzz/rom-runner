@@ -10,7 +10,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Limpeza pesada de disco
+      # 1. Limpeza de espaço em disco
       - name: Maximize Build Space
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -25,7 +25,7 @@ jobs:
           sudo apt-get autoremove -y
           df -h /
 
-      # 2. SWAP leve de 6GB
+      # 2. Configuração de SWAP (6GB)
       - name: Setup Swap Space
         run: |
           sudo swapoff -a || true
@@ -36,7 +36,7 @@ jobs:
           sudo swapon /swapfile
           free -h
 
-      # 3. Dependências de build
+      # 3. Instalação de dependências do sistema
       - name: Install Build Dependencies
         run: |
           sudo add-apt-repository universe -y
@@ -54,7 +54,7 @@ jobs:
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
 
-      # 4. Sync da fonte LineageOS 18.1 (Android 11) + Device Tree sjllls
+      # 4. Sync da fonte LineageOS 18.1 + Trees (Sem compilação do Kernel)
       - name: Sync Source Code & Local Manifests
         run: |
           export PATH="$HOME/bin:$PATH"
@@ -69,7 +69,8 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
             <project path="device/motorola/rav" name="sjllls/android_device_motorola_rav" remote="github" revision="lineage-18.1" />
-            <project path="kernel/motorola/msm8998" name="LineageOS/android_kernel_motorola_msm8998" remote="github" revision="lineage-18.1" />
+            <project path="device/motorola/trinket-common" name="LineageOS/android_device_motorola_trinket-common" remote="github" revision="lineage-18.1" />
+            
             <project path="vendor/motorola" name="TheMuppets/proprietary_vendor_motorola" remote="github" revision="lineage-18.1" />
           </manifest>
           EOF
@@ -77,7 +78,15 @@ jobs:
           repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune -j$(nproc --all)
           rm -rf .repo/project-objects .repo/projects
 
-      # 5. GERADOR DE CHAVES OFICIAIS (Modo Não-Interativo Corrigido)
+      # 5. Download e injeção do seu boot.img do Google Drive
+      - name: Inject Custom Boot Image
+        run: |
+          mkdir -p work/device/motorola/rav/prebuilt
+          # Baixa direto do Google Drive usando o ID do seu link
+          curl -L "https://drive.google.com/uc?export=download&id=1r04xZAb12Avg8IXFixpqB3azbWwWXm2A" -o work/device/motorola/rav/prebuilt/boot.img
+          ls -lh work/device/motorola/rav/prebuilt/boot.img
+
+      # 6. Geração não-interativa das Release Keys
       - name: Generate Release Keys
         run: |
           cd work
@@ -85,13 +94,12 @@ jobs:
           
           AUTH='/C=US/ST=California/L=MountainView/O=Android/OU=Android/CN=Android/emailAddress=android@android.com'
           
-          # Gera os certificados privados sem solicitar input do teclado
           for key in releasekey platform shared media testkey bluetooth sdk_addon; do
             printf '\n\n\n\n\n\n\n\n' | ./development/tools/make_key certs/$key "$AUTH" || true
           done
 
-      # 6. Build Android 11
-      - name: Build ROM
+      # 7. Compilação apenas das imagens e do sistema (Ignora compilação do Kernel)
+      - name: Build ROM Images
         run: |
           export PATH="$HOME/bin:$PATH"
           cd work
@@ -109,14 +117,15 @@ jobs:
           export PRODUCT_DEFAULT_DEV_CERTIFICATE=certs/releasekey
           export BUILD_KEYS=release-keys
           
-          m bacon -j2
+          # Compila as imagens das partições principais para o FastbootD
+          m systemimage vendorimage productimage -j2
 
-      # 7. Upload do ZIP da ROM
+      # 8. Upload das imagens (.img) para download no GitHub
       - name: Upload ROM Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-Lineage18.1-rav
+          name: ROM-Images-rav
           path: |
-            work/out/target/product/rav/*.zip
+            work/out/target/product/rav/*.img
             work/certs/
           if-no-files-found: warn
