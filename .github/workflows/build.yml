@@ -54,7 +54,7 @@ jobs:
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
 
-      # 4. Sync do código-fonte LineageOS 18.1 + Trees + Kernel sm6125
+            # 4. Sync do código-fonte LineageOS 18.1 + Trees + Kernel sm6125
       - name: Sync Source Code & Local Manifests
         run: |
           export PATH="$HOME/bin:$PATH"
@@ -68,21 +68,23 @@ jobs:
           cat <<EOF > .repo/local_manifests/rav.xml
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
+            <remote name="github-direct" fetch="https://github.com/" />
+
             <!-- Device Trees -->
-            <project path="device/motorola/rav" name="sjllls/android_device_motorola_rav" remote="github" revision="lineage-18.1" />
-            <project path="device/motorola/trinket-common" name="LineageOS/android_device_motorola_trinket-common" remote="github" revision="lineage-18.1" />
+            <project path="device/motorola/rav" name="sjllls/android_device_motorola_rav" remote="github-direct" revision="lineage-18.1" />
+            <project path="device/motorola/trinket-common" name="LineageOS/android_device_motorola_trinket-common" remote="github-direct" revision="refs/heads/lineage-18.1" />
             
             <!-- Kernel sm6125 -->
-            <project path="kernel/motorola/sm6125" name="sjllls/android_kernel_motorola_sm6125" remote="github" revision="lineage-18.1" />
+            <project path="kernel/motorola/sm6125" name="sjllls/android_kernel_motorola_sm6125" remote="github-direct" revision="lineage-18.1" />
             
             <!-- Vendor Unificado -->
-            <project path="vendor/motorola" name="TheMuppets/proprietary_vendor_motorola" remote="github" revision="lineage-18.1" />
+            <project path="vendor/motorola" name="TheMuppets/proprietary_vendor_motorola" remote="github-direct" revision="lineage-18.1" />
           </manifest>
           EOF
 
-          # Sync gerenciado nativamente pelo repo (sem git clone manual nem apagar a pasta .repo no final)
-          repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j4 || \
-          repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j1
+          # Sync forçado sem usar clones parciais otimizados que costumam quebrar no GitHub
+          repo sync -c --no-clone-bundle --no-tags --force-sync -j4 || \
+          repo sync -c --no-clone-bundle --no-tags --force-sync -j1
 
       # 5. Geração não-interativa das Release Keys
       - name: Generate Release Keys
