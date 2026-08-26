@@ -54,7 +54,7 @@ jobs:
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
 
-      # 4. Sync do código-fonte LineageOS 18.1 + Trees + Kernel sm6125 (Com ajuste de Fetch Manual)
+      # 4. Sync do código-fonte LineageOS 18.1 + Trees + Kernel sm6125
       - name: Sync Source Code & Local Manifests
         run: |
           export PATH="$HOME/bin:$PATH"
@@ -80,14 +80,9 @@ jobs:
           </manifest>
           EOF
 
-          # Clone direto do trinket-common para evitar a falha de Fetch/Network no repo sync
-          mkdir -p device/motorola
-          git clone --depth=1 -b lineage-18.1 https://github.com/LineageOS/android_device_motorola_trinket-common device/motorola/trinket-common || true
-
-          # Sync com limite de jobs (-j4) e fallback de estabilidade (-j1)
-          repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j4 || repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j1
-          
-          rm -rf .repo/project-objects .repo/projects
+          # Sync gerenciado nativamente pelo repo (sem git clone manual nem apagar a pasta .repo no final)
+          repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j4 || \
+          repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j1
 
       # 5. Geração não-interativa das Release Keys
       - name: Generate Release Keys
