@@ -15,9 +15,12 @@ jobs:
           mkdir -p ~/.crave
           echo '${{ secrets.CRAVE_JSON }}' > ~/.crave/crave.json
           
-          curl -sL https://github.com/accupara/crave/releases/latest/download/crave -o crave
-          chmod +x crave
+          # Instalação usando o script oficial atualizado
+          curl -s https://raw.githubusercontent.com/accupara/crave/master/crave_install.sh | bash
           sudo mv crave /usr/local/bin/
+          
+          # Confirma se o binário está funcional
+          /usr/local/bin/crave --version
 
       - name: Rodar Build no Crave
         run: |
