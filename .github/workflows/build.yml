@@ -14,7 +14,9 @@ jobs:
         run: |
           mkdir -p ~/.crave
           echo '${{ secrets.CRAVE_JSON }}' > ~/.crave/crave.json
-          curl -s https://raw.githubusercontent.com/accupara/crave/main/crave_install.sh | bash
+          
+          curl -sL https://github.com/accupara/crave/releases/latest/download/crave -o crave
+          chmod +x crave
           sudo mv crave /usr/local/bin/
 
       - name: Rodar Build no Crave
