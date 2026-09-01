@@ -1,70 +1,26 @@
-name: Build ROM Android 11 (rav)
+name: Build LineageOS 18.1 (rav) via Crave
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Limpeza de pacotes e espaço em disco no Runner
-      - name: Maximize Build Space
+      - name: Instalar Crave CLI
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune -a -f
-          sudo apt-get clean
-          sudo apt-get autoremove -y
-          df -h /
+          mkdir -p ~/.crave
+          echo '${{ secrets.CRAVE_JSON }}' > ~/.crave/crave.json
+          curl -s https://raw.githubusercontent.com/accupara/crave/main/crave_install.sh | bash
+          sudo mv crave /usr/local/bin/
 
-      # 2. Configuração de 6GB de Memória SWAP
-      - name: Setup Swap Space
+      - name: Rodar Build no Crave
         run: |
-          sudo swapoff -a || true
-          sudo rm -f /swapfile
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=6144 status=progress
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-
-      # 3. Instalação das dependências do sistema
-      - name: Install Build Dependencies
-        run: |
-          sudo add-apt-repository universe -y
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
-            bc bison build-essential ccache python3 \
-            flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev \
-            lib32z1-dev libc6-dev-i386 libgl1-mesa-dev libxml2-utils \
-            xsltproc unzip zip curl lzop pngcrush schedtool squashfs-tools \
-            zlib1g-dev libssl-dev libelf-dev openjdk-8-jdk openssl
-          
-          sudo ln -sf /usr/bin/python3 /usr/bin/python
-          
-          mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
-
-            # 4. Sync do código-fonte LineageOS 18.1 + Trees + Kernel sm6125
-      - name: Sync Source Code & Local Manifests
-        run: |
-          export PATH="$HOME/bin:$PATH"
-          mkdir -p work
-          cd work
-          
-          repo init -u https://github.com/LineageOS/android.git -b lineage-18.1 --git-lfs --depth=1
-          
+          # 1. Configura o manifesto local no repositório antes de enviar
           mkdir -p .repo/local_manifests
-          
           cat <<EOF > .repo/local_manifests/rav.xml
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
@@ -82,50 +38,26 @@ jobs:
           </manifest>
           EOF
 
-          # Sync forçado sem usar clones parciais otimizados que costumam quebrar no GitHub
-          repo sync -c --no-clone-bundle --no-tags --force-sync -j4 || \
-          repo sync -c --no-clone-bundle --no-tags --force-sync -j1
+          # 2. Inicializa o ambiente de dev do Crave
+          crave devinit --project-name "LineageOS-18.1" || true
 
-      # 5. Geração não-interativa das Release Keys
-      - name: Generate Release Keys
+          # 3. Dispara a compilação completa no servidor do Crave
+          crave run -- "repo init -u https://github.com/LineageOS/android.git -b lineage-18.1 --git-lfs --depth=1 && \
+                        repo sync -c --no-clone-bundle --no-tags --force-sync -j\$(nproc) && \
+                        source build/envsetup.sh && \
+                        lunch lineage_rav-userdebug && \
+                        m bacon"
+
+      - name: Baixar Artefatos do Crave
         run: |
-          cd work
-          mkdir -p certs
-          
-          AUTH='/C=US/ST=California/L=MountainView/O=Android/OU=Android/CN=Android/emailAddress=android@android.com'
-          
-          for key in releasekey platform shared media testkey bluetooth sdk_addon; do
-            printf '\n\n\n\n\n\n\n\n' | ./development/tools/make_key certs/$key "$AUTH" || true
-          done
+          crave pull out/target/product/rav/*.zip
+          crave pull out/target/product/rav/*.img
 
-      # 6. Compilação da ROM e do Kernel
-      - name: Build ROM & Kernel
-        run: |
-          export PATH="$HOME/bin:$PATH"
-          cd work
-          source build/envsetup.sh
-          
-          lunch lineage_rav-userdebug
-          
-          export USE_CCACHE=1
-          export CCACHE_EXEC=/usr/bin/ccache
-          ccache -M 10G
-          
-          export _JAVA_OPTIONS="-Xmx4g"
-          export NINJA_ARGS="-j2"
-          
-          export PRODUCT_DEFAULT_DEV_CERTIFICATE=certs/releasekey
-          export BUILD_KEYS=release-keys
-          
-          m bacon -j2
-
-      # 7. Upload dos artefatos (ZIPs e IMGs gerados)
-      - name: Upload ROM Artifacts
+      - name: Upload da ROM para o GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-Lineage18.1-rav
+          name: LineageOS-18.1-rav-Crave
           path: |
-            work/out/target/product/rav/*.zip
-            work/out/target/product/rav/*.img
-            work/certs/
+            *.zip
+            *.img
           if-no-files-found: warn
